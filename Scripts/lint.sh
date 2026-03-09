@@ -4,6 +4,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${ROOT_DIR}/.build/lint-tools/bin"
+SWIFTLINT_CACHE_DIR="${ROOT_DIR}/.build/swiftlint-cache"
+
+mkdir -p "${SWIFTLINT_CACHE_DIR}"
+
+export XCODE_DEFAULT_TOOLCHAIN_OVERRIDE="${XCODE_DEFAULT_TOOLCHAIN_OVERRIDE:-/Library/Developer/CommandLineTools}"
+export TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-/Library/Developer/CommandLineTools}"
+export SWIFTLINT_CACHE_PATH="${SWIFTLINT_CACHE_PATH:-${SWIFTLINT_CACHE_DIR}}"
 
 ensure_tools() {
   # Always delegate to the installer so pinned versions are enforced.

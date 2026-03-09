@@ -35,6 +35,9 @@ struct UsageMenuCardView: View {
             let detailRightText: String?
             let pacePercent: Double?
             let paceOnTop: Bool
+            let forecastPercent: Double?
+            let forecastOverflow: Bool
+            let forecastText: String?
 
             var percentLabel: String {
                 String(format: "%.0f%% %@", self.percent, self.percentStyle.labelSuffix)
@@ -334,8 +337,7 @@ private struct MetricRow: View {
                 percent: self.metric.percent,
                 tint: self.progressColor,
                 accessibilityLabel: self.metric.percentStyle.accessibilityLabel,
-                pacePercent: self.metric.pacePercent,
-                paceOnTop: self.metric.paceOnTop)
+                overlay: self.progressOverlay)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(self.metric.percentLabel)
@@ -374,8 +376,21 @@ private struct MetricRow: View {
                     .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                     .lineLimit(1)
             }
+            if let forecastText = self.metric.forecastText {
+                Text(forecastText)
+                    .font(.footnote)
+                    .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var progressOverlay: UsageProgressBar.Overlay? {
+        if let forecastPercent = self.metric.forecastPercent {
+            return .forecast(percent: forecastPercent, isOverflow: self.metric.forecastOverflow)
+        }
+        return .pace(percent: self.metric.pacePercent, onTop: self.metric.paceOnTop)
     }
 }
 
@@ -905,6 +920,7 @@ extension UsageMenuCardView.Model {
         let zaiTimeDetail = Self.zaiLimitDetailText(limit: zaiUsage?.timeLimit)
         let openRouterQuotaDetail = Self.openRouterQuotaDetail(provider: input.provider, snapshot: snapshot)
         if let primary = snapshot.primary {
+            let forecastDetail = Self.forecastDetail(window: primary, now: input.now, showUsed: input.usageBarsShowUsed)
             var primaryDetailText: String? = input.provider == .zai ? zaiTokenDetail : nil
             var primaryResetText = Self.resetText(for: primary, style: input.resetTimeDisplayStyle, now: input.now)
             if input.provider == .openrouter,
@@ -932,7 +948,10 @@ extension UsageMenuCardView.Model {
                 detailLeftText: nil,
                 detailRightText: nil,
                 pacePercent: nil,
-                paceOnTop: true))
+                paceOnTop: true,
+                forecastPercent: forecastDetail?.displayPercent,
+                forecastOverflow: forecastDetail?.isOverflow ?? false,
+                forecastText: forecastDetail?.summary))
         }
         if let weekly = snapshot.secondary {
             let paceDetail = Self.weeklyPaceDetail(
@@ -940,6 +959,7 @@ extension UsageMenuCardView.Model {
                 now: input.now,
                 pace: input.weeklyPace,
                 showUsed: input.usageBarsShowUsed)
+            let forecastDetail = Self.forecastDetail(window: weekly, now: input.now, showUsed: input.usageBarsShowUsed)
             var weeklyResetText = Self.resetText(for: weekly, style: input.resetTimeDisplayStyle, now: input.now)
             var weeklyDetailText: String? = input.provider == .zai ? zaiTimeDetail : nil
             if input.provider == .warp,
@@ -968,7 +988,10 @@ extension UsageMenuCardView.Model {
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,
                 pacePercent: paceDetail?.pacePercent,
-                paceOnTop: paceDetail?.paceOnTop ?? true))
+                paceOnTop: paceDetail?.paceOnTop ?? true,
+                forecastPercent: forecastDetail?.displayPercent,
+                forecastOverflow: forecastDetail?.isOverflow ?? false,
+                forecastText: forecastDetail?.summary))
         }
         if input.provider == .kilo,
            metrics.contains(where: { $0.id == "primary" }),
@@ -983,6 +1006,7 @@ extension UsageMenuCardView.Model {
             }
         }
         if input.metadata.supportsOpus, let opus = snapshot.tertiary {
+            let forecastDetail = Self.forecastDetail(window: opus, now: input.now, showUsed: input.usageBarsShowUsed)
             metrics.append(Metric(
                 id: "tertiary",
                 title: input.metadata.opusLabel ?? "Sonnet",
@@ -993,7 +1017,10 @@ extension UsageMenuCardView.Model {
                 detailLeftText: nil,
                 detailRightText: nil,
                 pacePercent: nil,
-                paceOnTop: true))
+                paceOnTop: true,
+                forecastPercent: forecastDetail?.displayPercent,
+                forecastOverflow: forecastDetail?.isOverflow ?? false,
+                forecastText: forecastDetail?.summary))
         }
 
         if input.provider == .codex, let remaining = input.dashboard?.codeReviewRemainingPercent {
@@ -1008,7 +1035,10 @@ extension UsageMenuCardView.Model {
                 detailLeftText: nil,
                 detailRightText: nil,
                 pacePercent: nil,
-                paceOnTop: true))
+                paceOnTop: true,
+                forecastPercent: nil,
+                forecastOverflow: false,
+                forecastText: nil))
         }
         return metrics
     }
@@ -1051,6 +1081,12 @@ extension UsageMenuCardView.Model {
         let paceOnTop: Bool
     }
 
+    private struct ForecastDetail {
+        let displayPercent: Double
+        let isOverflow: Bool
+        let summary: String
+    }
+
     private static func weeklyPaceDetail(
         window: RateWindow,
         now: Date,
@@ -1071,6 +1107,20 @@ extension UsageMenuCardView.Model {
             rightLabel: detail.rightLabel,
             pacePercent: pacePercent,
             paceOnTop: paceOnTop)
+    }
+
+    private static func forecastDetail(
+        window: RateWindow,
+        now: Date,
+        showUsed: Bool) -> ForecastDetail?
+    {
+        guard let projection = UsageProjection.linear(window: window, now: now) else { return nil }
+        let displayPercent = UsageProjectionText.displayPercent(projection: projection, showUsed: showUsed)
+        guard displayPercent.isFinite else { return nil }
+        return ForecastDetail(
+            displayPercent: displayPercent,
+            isOverflow: projection.isProjectedToOverflow,
+            summary: UsageProjectionText.summary(projection: projection, now: now))
     }
 
     private static func creditsLine(
