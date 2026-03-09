@@ -383,8 +383,7 @@ private struct ProviderMetricInlineRow: View {
                     percent: self.metric.percent,
                     tint: self.progressColor,
                     accessibilityLabel: self.metric.percentStyle.accessibilityLabel,
-                    pacePercent: self.metric.pacePercent,
-                    paceOnTop: self.metric.paceOnTop)
+                    overlay: self.progressOverlay)
                     .frame(minWidth: ProviderSettingsMetrics.metricBarWidth, maxWidth: .infinity)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -423,10 +422,22 @@ private struct ProviderMetricInlineRow: View {
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
                 }
+                if let forecastText = self.metric.forecastText, !forecastText.isEmpty {
+                    Text(forecastText)
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
+    }
+
+    private var progressOverlay: UsageProgressBar.Overlay? {
+        if let forecastPercent = self.metric.forecastPercent {
+            return .forecast(percent: forecastPercent, isOverflow: self.metric.forecastOverflow)
+        }
+        return .pace(percent: self.metric.pacePercent, onTop: self.metric.paceOnTop)
     }
 
     private var detailText: String? {

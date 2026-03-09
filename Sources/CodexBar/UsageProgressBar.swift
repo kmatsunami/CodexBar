@@ -2,21 +2,40 @@ import SwiftUI
 
 /// Static progress fill with no implicit animations, used inside the menu card.
 struct UsageProgressBar: View {
-    private static let paceStripeCount = 3
-    private static func paceStripeWidth(for scale: CGFloat) -> CGFloat {
+    struct Overlay: Equatable {
+        enum Style: Equatable {
+            case pace(isDeficit: Bool)
+            case forecast(isOverflow: Bool)
+        }
+
+        let percent: Double
+        let style: Style
+
+        static func pace(percent: Double?, onTop: Bool) -> Overlay? {
+            guard let percent else { return nil }
+            return Overlay(percent: percent, style: .pace(isDeficit: onTop == false))
+        }
+
+        static func forecast(percent: Double?, isOverflow: Bool) -> Overlay? {
+            guard let percent else { return nil }
+            return Overlay(percent: percent, style: .forecast(isOverflow: isOverflow))
+        }
+    }
+
+    private static let overlayStripeCount = 3
+    private static func overlayStripeWidth(for scale: CGFloat) -> CGFloat {
         2
     }
 
-    private static func paceStripeSpan(for scale: CGFloat) -> CGFloat {
-        let stripeCount = max(1, Self.paceStripeCount)
-        return Self.paceStripeWidth(for: scale) * CGFloat(stripeCount)
+    private static func overlayStripeSpan(for scale: CGFloat) -> CGFloat {
+        let stripeCount = max(1, Self.overlayStripeCount)
+        return Self.overlayStripeWidth(for: scale) * CGFloat(stripeCount)
     }
 
     let percent: Double
     let tint: Color
     let accessibilityLabel: String
-    let pacePercent: Double?
-    let paceOnTop: Bool
+    let overlay: Overlay?
     @Environment(\.menuItemHighlighted) private var isHighlighted
     @Environment(\.displayScale) private var displayScale
 
@@ -24,14 +43,12 @@ struct UsageProgressBar: View {
         percent: Double,
         tint: Color,
         accessibilityLabel: String,
-        pacePercent: Double? = nil,
-        paceOnTop: Bool = true)
+        overlay: Overlay? = nil)
     {
         self.percent = percent
         self.tint = tint
         self.accessibilityLabel = accessibilityLabel
-        self.pacePercent = pacePercent
-        self.paceOnTop = paceOnTop
+        self.overlay = overlay
     }
 
     private var clamped: Double {
@@ -42,18 +59,18 @@ struct UsageProgressBar: View {
         GeometryReader { proxy in
             let scale = max(self.displayScale, 1)
             let fillWidth = proxy.size.width * self.clamped / 100
-            let paceWidth = proxy.size.width * Self.clampedPercent(self.pacePercent) / 100
+            let overlayWidth = proxy.size.width * Self.clampedPercent(self.overlay?.percent) / 100
             let tipWidth = max(25, proxy.size.height * 6.5)
             let stripeInset = 1 / scale
-            let tipOffset = paceWidth - tipWidth + (Self.paceStripeSpan(for: scale) / 2) + stripeInset
-            let showTip = self.pacePercent != nil && tipWidth > 0.5
+            let tipOffset = overlayWidth - tipWidth + (Self.overlayStripeSpan(for: scale) / 2) + stripeInset
+            let showTip = self.shouldShowOverlay && tipWidth > 0.5
             let needsPunchCompositing = showTip
             let bar = ZStack(alignment: .leading) {
                 Capsule()
                     .fill(MenuHighlightStyle.progressTrack(self.isHighlighted))
                 self.actualBar(width: fillWidth)
                 if showTip {
-                    self.paceTip(width: tipWidth)
+                    self.overlayTip(width: tipWidth)
                         .offset(x: tipOffset)
                 }
             }
@@ -82,21 +99,23 @@ struct UsageProgressBar: View {
             .allowsHitTesting(false)
     }
 
-    private func paceTip(width: CGFloat) -> some View {
-        let isDeficit = self.paceOnTop == false
-        let useDeficitRed = isDeficit && self.isHighlighted == false
-        return GeometryReader { proxy in
+    private var shouldShowOverlay: Bool {
+        guard let overlay else { return false }
+        switch overlay.style {
+        case .pace:
+            return true
+        case .forecast:
+            return abs(Self.clampedPercent(overlay.percent) - self.clamped) >= 0.5
+        }
+    }
+
+    private func overlayTip(width: CGFloat) -> some View {
+        GeometryReader { proxy in
             let size = proxy.size
             let rect = CGRect(origin: .zero, size: size)
             let scale = max(self.displayScale, 1)
-            let stripes = Self.paceStripePaths(size: size, scale: scale)
-            let stripeColor: Color = if self.isHighlighted {
-                .white
-            } else if useDeficitRed {
-                .red
-            } else {
-                .green
-            }
+            let stripes = Self.overlayStripePaths(size: size, scale: scale)
+            let stripeColor = self.overlayStripeColor()
 
             ZStack {
                 Canvas { context, _ in
@@ -116,7 +135,21 @@ struct UsageProgressBar: View {
         .allowsHitTesting(false)
     }
 
-    private static func paceStripePaths(size: CGSize, scale: CGFloat) -> (punched: Path, center: Path) {
+    private func overlayStripeColor() -> Color {
+        guard let overlay else { return .white }
+        if self.isHighlighted {
+            return .white
+        }
+
+        switch overlay.style {
+        case let .pace(isDeficit):
+            return isDeficit ? .red : .green
+        case let .forecast(isOverflow):
+            return isOverflow ? .red : self.tint
+        }
+    }
+
+    private static func overlayStripePaths(size: CGSize, scale: CGFloat) -> (punched: Path, center: Path) {
         let rect = CGRect(origin: .zero, size: size)
         let extend = size.height * 2
         let stripeTopY: CGFloat = -extend
@@ -125,7 +158,7 @@ struct UsageProgressBar: View {
             (value * scale).rounded() / scale
         }
 
-        let stripeWidth = Self.paceStripeWidth(for: scale)
+        let stripeWidth = Self.overlayStripeWidth(for: scale)
         let punchWidth = stripeWidth * 3
         let stripeInset = 1 / scale
         let stripeAnchorX = align(rect.maxX - stripeInset)

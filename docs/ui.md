@@ -38,6 +38,20 @@ When usage is in deficit, the right-hand label shows an estimated "Runs out in �
 
 Pace is calculated for Codex and Claude weekly windows only and is hidden when less than 3% of the window has elapsed.
 
+## Forecast tracking
+
+Forecast answers a different question from pace: if the current burn rate continues until reset, where will the window end up?
+
+- **Forecast X% at reset** – projected end-of-window usage at the current observed rate.
+- Forecast is shown only when the row has both a concrete reset time and a known window duration.
+- Forecast values above `100%` stay above `100%` in text and are clamped only for bar drawing.
+- If bars are configured to show remaining quota, the overlay follows the remaining-scale bar while the text still reports projected usage at reset.
+
+Forecast does not replace pace:
+
+- **pace** = how far ahead of or behind budget you are right now
+- **forecast** = where the window is expected to land by reset if nothing changes
+
 ## Preferences notes
 - Advanced: “Disable Keychain access” turns off browser cookie import; paste Cookie headers manually in Providers.
 - Display: “Overview tab providers” controls which providers appear in Merge Icons → Overview (up to 3).

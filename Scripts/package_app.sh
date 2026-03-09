@@ -6,6 +6,11 @@ SIGNING_MODE=${CODEXBAR_SIGNING:-}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
+MODULE_CACHE_DIR="${ROOT}/.build/module-cache"
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-${MODULE_CACHE_DIR}/clang}"
+export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-${MODULE_CACHE_DIR}/swiftpm}"
+mkdir -p "${CLANG_MODULE_CACHE_PATH}" "${SWIFTPM_MODULECACHE_OVERRIDE}"
+
 # Load version info
 source "$ROOT/version.env"
 
@@ -36,15 +41,15 @@ fi
 
 patch_keyboard_shortcuts() {
   local util_path="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/KeyboardShortcuts/Utilities.swift"
+  local recorder_path="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/KeyboardShortcuts/Recorder.swift"
   if [[ ! -f "$util_path" ]]; then
     return 0
   fi
   if grep -q "keyboardShortcutsSafeBundle" "$util_path"; then
-    return 0
-  fi
-
-  chmod +w "$util_path" || true
-  python3 - "$util_path" <<'PY'
+    :
+  else
+    chmod +w "$util_path" || true
+    python3 - "$util_path" <<'PY'
 import sys
 from pathlib import Path
 
@@ -96,6 +101,24 @@ if marker not in text:
 text = text.replace(marker, "}\n\n" + inject + "\n\nextension Data {")
 path.write_text(text)
 PY
+  fi
+
+  if [[ -f "$recorder_path" ]]; then
+    chmod +w "$recorder_path" || true
+    python3 - "$recorder_path" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+if "xcodePreview" not in text:
+    sys.exit(0)
+
+updated = re.sub(r'\n#Preview\s*\{.*?\n\}\n', '\n', text, flags=re.S)
+path.write_text(updated)
+PY
+  fi
 }
 
 KEYBOARD_SHORTCUTS_UTIL="$ROOT/.build/checkouts/KeyboardShortcuts/Sources/KeyboardShortcuts/Utilities.swift"
