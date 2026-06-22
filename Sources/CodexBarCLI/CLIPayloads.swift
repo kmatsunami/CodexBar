@@ -16,6 +16,7 @@ struct ProviderPayload: Encodable {
     let antigravityPlanInfo: AntigravityPlanInfoSummary?
     let openaiDashboard: OpenAIDashboardSnapshot?
     let error: ProviderErrorPayload?
+    let pace: ProviderPacePayload?
 
     private enum CodingKeys: String, CodingKey {
         case provider
@@ -28,6 +29,7 @@ struct ProviderPayload: Encodable {
         case antigravityPlanInfo
         case openaiDashboard
         case error
+        case pace
     }
 
     init(
@@ -41,7 +43,8 @@ struct ProviderPayload: Encodable {
         credits: CreditsSnapshot?,
         antigravityPlanInfo: AntigravityPlanInfoSummary?,
         openaiDashboard: OpenAIDashboardSnapshot?,
-        error: ProviderErrorPayload?)
+        error: ProviderErrorPayload?,
+        pace: ProviderPacePayload? = nil)
     {
         self.provider = provider.rawValue
         self.account = account
@@ -54,6 +57,7 @@ struct ProviderPayload: Encodable {
         self.antigravityPlanInfo = antigravityPlanInfo
         self.openaiDashboard = openaiDashboard
         self.error = error
+        self.pace = pace
     }
 
     init(
@@ -67,7 +71,8 @@ struct ProviderPayload: Encodable {
         credits: CreditsSnapshot?,
         antigravityPlanInfo: AntigravityPlanInfoSummary?,
         openaiDashboard: OpenAIDashboardSnapshot?,
-        error: ProviderErrorPayload?)
+        error: ProviderErrorPayload?,
+        pace: ProviderPacePayload? = nil)
     {
         self.provider = providerID
         self.account = account
@@ -80,7 +85,31 @@ struct ProviderPayload: Encodable {
         self.antigravityPlanInfo = antigravityPlanInfo
         self.openaiDashboard = openaiDashboard
         self.error = error
+        self.pace = pace
     }
+}
+
+/// Derived pace data for the `--format json` payload. Mirrors the text renderer's session/weekly
+/// Pace lines: `primary` is the session window, `secondary` is the weekly window. A key is present
+/// only when the corresponding text Pace line would render; otherwise it is omitted.
+struct ProviderPacePayload: Encodable {
+    let primary: PacePayload?
+    let secondary: PacePayload?
+}
+
+struct PacePayload: Encodable {
+    /// Raw `UsagePace.Stage`: onTrack / slightlyAhead / ahead / farAhead / slightlyBehind / behind / farBehind.
+    let stage: String
+    /// actualUsedPercent − expectedUsedPercent. Positive = ahead of pace (deficit); negative = behind (reserve).
+    let deltaPercent: Double
+    let expectedUsedPercent: Double
+    let actualUsedPercent: Double
+    let willLastToReset: Bool
+    /// Seconds until the window is projected to be exhausted. Omitted when it lasts to reset or is unknown.
+    let etaSeconds: TimeInterval?
+    let runOutProbability: Double?
+    /// Human-readable line identical to the text renderer's Pace content (without the "Pace:" label).
+    let summary: String
 }
 
 struct ProviderStatusPayload: Encodable {

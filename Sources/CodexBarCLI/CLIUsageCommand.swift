@@ -376,7 +376,8 @@ extension CodexBarCLI {
                     credits: result.credits,
                     antigravityPlanInfo: antigravityPlanInfo,
                     openaiDashboard: dashboard,
-                    error: nil))
+                    error: nil,
+                    pace: CLIRenderer.providerPacePayload(provider: provider, snapshot: usage)))
             }
         case let .failure(error):
             output.exitCode = Self.mapError(error)

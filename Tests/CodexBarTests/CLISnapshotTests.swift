@@ -476,6 +476,116 @@ struct CLISnapshotTests {
     }
 
     @Test
+    func `renders session pace line when session window has reset`() {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 20,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(2 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        let output = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "Codex 0.0.0 (codex-cli)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        #expect(output.contains("Session: 80% left"))
+        // 2h remaining of a 5h window => 3h elapsed => 60% expected.
+        #expect(output.contains("Pace: 40% in reserve | Expected 60% used"))
+    }
+
+    @Test
+    func `renders Claude session pace using five hour default window`() {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 20,
+                windowMinutes: nil,
+                resetsAt: now.addingTimeInterval(2 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        let output = CLIRenderer.renderText(
+            provider: .claude,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "Claude Code 2.0.69 (claude)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        // windowMinutes is nil, so the 5-hour (300 minute) session default must drive the pace.
+        #expect(output.contains("Pace: 40% in reserve | Expected 60% used"))
+    }
+
+    @Test
+    func `renders session pace deficit with run out estimate`() {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 50,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(4 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        let output = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "Codex 0.0.0 (codex-cli)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        // 1h elapsed of a 5h window => 20% expected vs 50% used => burning ahead of pace.
+        // Session mirrors the GUI's "Projected empty" wording (weekly uses "Runs out").
+        #expect(output.contains("Pace: 30% in deficit | Expected 20% used | Projected empty in"))
+        #expect(!output.contains("Runs out"))
+    }
+
+    @Test
+    func `hides session pace for unsupported provider`() {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 20,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(2 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        let output = CLIRenderer.renderText(
+            provider: .zai,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "z.ai 0.0.0 (zai)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        #expect(!output.contains("Pace:"))
+    }
+
+    @Test
     func `renders JSON payload`() throws {
         let snap = UsageSnapshot(
             primary: .init(usedPercent: 50, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
@@ -513,6 +623,125 @@ struct CLISnapshotTests {
         #expect(json.contains("\"primary\""))
         #expect(json.contains("\"windowMinutes\":300"))
         #expect(json.contains("1700000000"))
+    }
+
+    @Test
+    func `json payload includes session and weekly pace with distinct wording`() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let snap = UsageSnapshot(
+            // 1h elapsed of a 5h window => 20% expected vs 50% used => deficit, runs out in 1h.
+            primary: .init(
+                usedPercent: 50,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(4 * 60 * 60),
+                resetDescription: nil),
+            // 5d elapsed of a 7d window => ~71% expected vs 90% used => deficit, runs out before reset.
+            secondary: .init(
+                usedPercent: 90,
+                windowMinutes: 10080,
+                resetsAt: now.addingTimeInterval(2 * 24 * 60 * 60),
+                resetDescription: nil),
+            tertiary: nil,
+            updatedAt: now)
+
+        let payload = ProviderPayload(
+            provider: .codex,
+            account: nil,
+            version: "1.2.3",
+            source: "codex-cli",
+            status: nil,
+            usage: snap,
+            credits: nil,
+            antigravityPlanInfo: nil,
+            openaiDashboard: nil,
+            error: nil,
+            pace: CLIRenderer.providerPacePayload(provider: .codex, snapshot: snap, now: now))
+
+        let data = try JSONEncoder().encode(payload)
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let pace = try #require(root["pace"] as? [String: Any])
+
+        let primary = try #require(pace["primary"] as? [String: Any])
+        #expect(primary["stage"] as? String == "farAhead")
+        #expect(primary["expectedUsedPercent"] as? Double == 20)
+        #expect(primary["actualUsedPercent"] as? Double == 50)
+        #expect(primary["deltaPercent"] as? Double == 30)
+        #expect(primary["willLastToReset"] as? Bool == false)
+        #expect(primary["etaSeconds"] as? Double == 3600)
+        #expect((primary["summary"] as? String)?
+            .contains("30% in deficit | Expected 20% used | Projected empty in") == true)
+        // CLI never sets a run-out probability, so the key is omitted (consistent with other nil fields).
+        #expect(primary["runOutProbability"] == nil)
+
+        let secondary = try #require(pace["secondary"] as? [String: Any])
+        #expect(secondary["stage"] as? String == "farAhead")
+        #expect((secondary["summary"] as? String)?.contains("Runs out in") == true)
+        #expect((secondary["summary"] as? String)?.contains("Projected empty") == false)
+    }
+
+    @Test
+    func `json omits pace when not applicable`() throws {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 20,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(2 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        // z.ai is not a session/weekly pace provider, so no pace should be emitted.
+        let payload = ProviderPayload(
+            provider: .zai,
+            account: nil,
+            version: nil,
+            source: "zai",
+            status: nil,
+            usage: snap,
+            credits: nil,
+            antigravityPlanInfo: nil,
+            openaiDashboard: nil,
+            error: nil,
+            pace: CLIRenderer.providerPacePayload(provider: .zai, snapshot: snap, now: now))
+
+        let data = try JSONEncoder().encode(payload)
+        let json = try #require(String(data: data, encoding: .utf8))
+        #expect(!json.contains("\"pace\""))
+    }
+
+    @Test
+    func `json includes only session pace when weekly window missing`() throws {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 50,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(4 * 60 * 60),
+                resetDescription: nil),
+            secondary: nil,
+            tertiary: nil,
+            updatedAt: now)
+
+        let payload = ProviderPayload(
+            provider: .codex,
+            account: nil,
+            version: nil,
+            source: "codex-cli",
+            status: nil,
+            usage: snap,
+            credits: nil,
+            antigravityPlanInfo: nil,
+            openaiDashboard: nil,
+            error: nil,
+            pace: CLIRenderer.providerPacePayload(provider: .codex, snapshot: snap, now: now))
+
+        let data = try JSONEncoder().encode(payload)
+        let root = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let pace = try #require(root["pace"] as? [String: Any])
+        #expect(pace["primary"] as? [String: Any] != nil)
+        #expect(pace["secondary"] == nil)
     }
 
     @Test
